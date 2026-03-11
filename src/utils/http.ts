@@ -10,16 +10,22 @@ import {
   type McpError,
 } from '../types/errors.js';
 import { type Result, ok, err } from '../types/result.js';
+import {
+  HTTP_REQUEST_TIMEOUT_MS,
+  DEFAULT_MAX_RETRIES,
+  RETRY_BASE_DELAY_MS,
+  RETRY_MAX_DELAY_MS,
+} from '../constants.js';
 
 /** Options for HTTP requests. */
 export interface HttpOptions extends Omit<RequestInit, 'signal'> {
-  /** Timeout in milliseconds (default: 30000). */
+  /** Timeout in milliseconds. */
   timeoutMs?: number;
-  /** Maximum retry attempts (default: 3). */
+  /** Maximum retry attempts. */
   maxRetries?: number;
-  /** Base delay for exponential backoff in ms (default: 1000). */
+  /** Base delay for exponential backoff in ms. */
   retryBaseDelayMs?: number;
-  /** Maximum delay between retries in ms (default: 10000). */
+  /** Maximum delay between retries in ms. */
   retryMaxDelayMs?: number;
 }
 
@@ -41,10 +47,10 @@ export async function httpRequest<T = unknown>(
   options: HttpOptions = {}
 ): Promise<Result<HttpResponse<T>>> {
   const {
-    timeoutMs = 30000,
-    maxRetries = 3,
-    retryBaseDelayMs = 1000,
-    retryMaxDelayMs = 10000,
+    timeoutMs = HTTP_REQUEST_TIMEOUT_MS,
+    maxRetries = DEFAULT_MAX_RETRIES,
+    retryBaseDelayMs = RETRY_BASE_DELAY_MS,
+    retryMaxDelayMs = RETRY_MAX_DELAY_MS,
     ...fetchOptions
   } = options;
 

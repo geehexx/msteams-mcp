@@ -308,6 +308,25 @@ export const emailSearchResultCalendarResponse = {
 };
 
 /**
+ * Email search result where From.EmailAddress is a string (not an object).
+ * Some Substrate API responses return the email address directly as a string
+ * rather than as a { Name, Address } object.
+ */
+export const emailSearchResultStringEmailAddress = {
+  Id: 'AAMkStringEmailAddr',
+  Subject: 'Quick Question',
+  HitHighlightedSummary: 'Can you review this document?',
+  Source: {
+    Subject: 'Quick Question',
+    From: {
+      Name: 'Bob Wilson',
+      EmailAddress: 'bob.wilson@company.com',
+    },
+    DateTimeReceived: '2026-02-01T10:00:00.000Z',
+  },
+};
+
+/**
  * Email EntitySets response structure from v2 query.
  */
 export const emailEntitySetsResponse = {

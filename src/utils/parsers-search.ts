@@ -222,23 +222,29 @@ export function parseEmailResult(item: Record<string, unknown>): EmailSearchResu
     || item.ReferenceId as string
     || `email-${Date.now()}`;
 
-  // Sender info — Substrate returns From as a structured object or string
+  // Sender info — Substrate returns From in multiple formats:
+  // 1. String: "John Smith"
+  // 2. Object with EmailAddress sub-object: { EmailAddress: { Name, Address } }
+  // 3. Object with flat fields: { Name, Address, DisplayName }
   let sender = '';
   let senderEmail: string | undefined;
   const from = source?.From as Record<string, unknown> | string | undefined;
   if (typeof from === 'string') {
     sender = from;
   } else if (from) {
-    const emailAddress = from.EmailAddress as Record<string, unknown> | undefined;
-    if (emailAddress) {
-      sender = emailAddress.Name as string || '';
-      senderEmail = emailAddress.Address as string | undefined;
+    const rawEmailAddress = from.EmailAddress;
+    if (typeof rawEmailAddress === 'string') {
+      senderEmail = rawEmailAddress;
+      sender = from.Name as string || from.DisplayName as string || '';
+    } else if (rawEmailAddress && typeof rawEmailAddress === 'object') {
+      const emailObj = rawEmailAddress as Record<string, unknown>;
+      sender = emailObj.Name as string || '';
+      senderEmail = emailObj.Address as string | undefined;
     } else {
       sender = from.Name as string || from.DisplayName as string || '';
-      senderEmail = from.Address as string || from.EmailAddress as string | undefined;
+      senderEmail = from.Address as string | undefined;
     }
   }
-  // Fallback to flat fields
   if (!sender) {
     sender = source?.FromName as string || source?.Sender as string || '';
   }

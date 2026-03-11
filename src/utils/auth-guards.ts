@@ -6,7 +6,7 @@
  */
 
 import { ErrorCode, createError, type McpError } from '../types/errors.js';
-import { type Result, err, ok } from '../types/result.js';
+import { type Result, type Err, err, ok } from '../types/result.js';
 import {
   getValidSubstrateToken,
   extractMessageAuth,
@@ -152,19 +152,15 @@ export function requireCalendarAuth(): Result<CalendarAuthInfo, McpError> {
  * Handles a failed Substrate/files API response by clearing the token cache
  * when the error indicates an expired token.
  * 
- * Eliminates the repeated pattern:
- * ```
- * if (!response.ok) {
- *   if (response.error.code === ErrorCode.AUTH_EXPIRED) {
- *     clearTokenCache();
- *   }
- *   return response;
- * }
- * ```
+ * Accepts both `Err<McpError>` and `Result<T, McpError>` for flexibility —
+ * callers typically pass a failed result, but the function is defensive
+ * against receiving a success result.
  * 
  * @param response - A failed Result (response.ok === false)
- * @returns The same failed Result, unchanged
+ * @returns The same Result, unchanged (type-narrowed as a failed result)
  */
+export function handleSubstrateError(response: Err<McpError>): Err<McpError>;
+export function handleSubstrateError<T>(response: Result<T, McpError>): Result<T, McpError>;
 export function handleSubstrateError<T>(response: Result<T, McpError>): Result<T, McpError> {
   if (!response.ok && response.error.code === ErrorCode.AUTH_EXPIRED) {
     clearTokenCache();

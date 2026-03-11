@@ -55,6 +55,7 @@ import {
   emailSearchResultMinimal,
   emailSearchResultWithRecipients,
   emailSearchResultCalendarResponse,
+  emailSearchResultStringEmailAddress,
   emailEntitySetsResponse,
 } from '../__fixtures__/api-responses.js';
 
@@ -1282,6 +1283,30 @@ describe('parseEmailResult', () => {
     expect(result).not.toBeNull();
     expect(result!.emailType).toBe('calendar-response');
     expect(result!.subject).toBe('Accepted: Weekly Standup');
+  });
+
+  it('extracts sender when From.EmailAddress is a string (not an object)', () => {
+    const result = parseEmailResult(emailSearchResultStringEmailAddress);
+    expect(result).not.toBeNull();
+    expect(result!.sender).toBe('Bob Wilson');
+    expect(result!.senderEmail).toBe('bob.wilson@company.com');
+    expect(result!.subject).toBe('Quick Question');
+  });
+
+  it('handles From with flat Name/Address fields (no EmailAddress)', () => {
+    const result = parseEmailResult({
+      Id: 'flat-from',
+      Source: {
+        Subject: 'Test Email',
+        From: {
+          Name: 'Carol Davis',
+          Address: 'carol@example.com',
+        },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.sender).toBe('Carol Davis');
+    expect(result!.senderEmail).toBe('carol@example.com');
   });
 });
 
