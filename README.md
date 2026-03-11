@@ -282,3 +282,4 @@ See [AGENTS.md](AGENTS.md) for detailed architecture and contribution guidelines
 ## Teams Chat Export Bookmarklet
 
 This repo also includes a standalone bookmarklet for exporting Teams chat messages to Markdown. See [teams-bookmarklet/README.md](teams-bookmarklet/README.md).
+\n## Quick note\n- This repo uses Cursor-based PR flow for minor edits.
