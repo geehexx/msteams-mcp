@@ -13,6 +13,11 @@ import {
   TOKEN_REFRESH_LOG_INTERVAL_MS,
 } from '../constants.js';
 import { extractSubstrateToken } from '../auth/token-extractor.js';
+import {
+  createTokenInterceptor,
+  saveInterceptedTokens,
+  clearInterceptedTokens,
+} from '../auth/token-interceptor.js';
 import * as logger from '../utils/logger.js';
 
 /**
@@ -361,6 +366,10 @@ export async function waitForManualLogin(
   const startTime = Date.now();
   const log = onProgress ?? console.log;
 
+  // Capture bearer tokens during manual login flow
+  clearInterceptedTokens();
+  const cleanupLoginInterceptor = createTokenInterceptor(page);
+
   log('Waiting for manual login...');
 
   while (Date.now() - startTime < timeoutMs) {
@@ -382,6 +391,8 @@ export async function waitForManualLogin(
         // Tokens didn't appear within timeout — save whatever state we have
         await saveSessionState(context);
       }
+      saveInterceptedTokens();
+      cleanupLoginInterceptor();
       log('Session state saved.');
 
       if (showOverlay) {
@@ -400,6 +411,8 @@ export async function waitForManualLogin(
     await showLoginProgress(page, 'error', { pause: true });
   }
 
+  saveInterceptedTokens();
+  cleanupLoginInterceptor();
   throw new Error('Authentication timeout: user did not complete login within the allowed time');
 }
 
@@ -617,6 +630,12 @@ export async function ensureAuthenticated(
 ): Promise<void> {
   const log = onProgress ?? console.log;
 
+  // Start capturing bearer tokens from network requests.
+  // New Teams (teams.cloud.microsoft) encrypts localStorage tokens,
+  // so we intercept them from HTTP headers as a fallback.
+  clearInterceptedTokens();
+  const cleanupInterceptor = createTokenInterceptor(page);
+
   log('Navigating to Teams...');
   const status = await navigateToTeams(page);
 
@@ -631,6 +650,8 @@ export async function ensureAuthenticated(
     if (browserTokens.substrateExpiryMins > 0) {
       // Tokens already present — save session and return immediately
       await saveSessionState(context);
+      saveInterceptedTokens();
+      cleanupInterceptor();
       const tokenInfo = formatTokenStatus(browserTokens);
       log(`Tokens already present (${tokenInfo}) — session saved.`);
       return;
@@ -644,6 +665,8 @@ export async function ensureAuthenticated(
     const tokenValid = token && token.expiry.getTime() > Date.now();
     
     if (tokenValid) {
+      saveInterceptedTokens();
+      cleanupInterceptor();
       log('Session state saved — tokens valid from saved session.');
       return;
     }
@@ -656,10 +679,14 @@ export async function ensureAuthenticated(
       const refreshed = await waitForTokenRefresh(page, context, onProgress);
       
       if (refreshed) {
+        saveInterceptedTokens();
+        cleanupInterceptor();
         return;
       }
       
       // Still no valid tokens after waiting
+      saveInterceptedTokens();
+      cleanupInterceptor();
       throw new Error('Headless SSO failed: MSAL token refresh timed out');
     }
     
@@ -670,10 +697,14 @@ export async function ensureAuthenticated(
     const refreshed = await waitForTokenRefresh(page, context, onProgress);
     
     if (refreshed) {
+      saveInterceptedTokens();
+      cleanupInterceptor();
       return;
     }
     
     // Tokens didn't appear — save whatever state we have so cookies still work
+    saveInterceptedTokens();
+    cleanupInterceptor();
     log('Session state saved (tokens may need refresh).');
     return;
   }
@@ -683,6 +714,7 @@ export async function ensureAuthenticated(
     const reason = status.isOnLoginPage 
       ? 'Login page detected - user credentials required'
       : `Unexpected page state: ${status.currentUrl}`;
+    cleanupInterceptor();
     throw new Error(`Headless SSO failed: ${reason}`);
   }
 
@@ -694,6 +726,9 @@ export async function ensureAuthenticated(
     log('Unexpected page state. Waiting for authentication...');
     await waitForManualLogin(page, context, undefined, onProgress, showOverlay);
   }
+
+  saveInterceptedTokens();
+  cleanupInterceptor();
 }
 
 /**

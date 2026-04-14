@@ -40,3 +40,4 @@ npm-debug.log*
 examples/
 notes/
 private/
+diag*.mjs

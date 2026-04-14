@@ -16,6 +16,7 @@ import {
   type TokenCache,
 } from './session-store.js';
 import { parseJwtProfile, type UserProfile } from '../utils/parsers.js';
+import { loadInterceptedTokens } from './token-interceptor.js';
 import { MRI_TYPE_PREFIX, ORGID_PREFIX, MRI_ORGID_PREFIX, MAX_DEBUG_CONFIG_VALUE_LENGTH } from '../constants.js';
 
 // ============================================================================
@@ -116,8 +117,8 @@ export interface MessageAuthInfo {
  * This token is used for search and people APIs.
  */
 export function extractSubstrateToken(state?: SessionState): SubstrateTokenInfo | null {
-  return withLocalStorage(state, (localStorage) => {
-    // Collect all valid Substrate tokens and pick the one with longest expiry
+  // Try localStorage first (works with classic Teams)
+  const fromLocalStorage = withLocalStorage(state, (localStorage) => {
     let bestToken: SubstrateTokenInfo | null = null;
 
     for (const item of localStorage) {
@@ -150,6 +151,19 @@ export function extractSubstrateToken(state?: SessionState): SubstrateTokenInfo 
 
     return bestToken;
   });
+
+  if (fromLocalStorage) return fromLocalStorage;
+
+  // Fallback: try intercepted tokens (new Teams with encrypted localStorage)
+  const intercepted = loadInterceptedTokens();
+  if (intercepted?.substrate && intercepted.substrate.expiry > Date.now()) {
+    return {
+      token: intercepted.substrate.token,
+      expiry: new Date(intercepted.substrate.expiry),
+    };
+  }
+
+  return null;
 }
 
 // ============================================================================
@@ -273,11 +287,21 @@ export function extractTeamsToken(state?: SessionState): TeamsTokenInfo | null {
 
     // Prefer chatsvc, fall back to skype
     const best = chatsvcCandidate ?? skypeCandidate;
-    if (!best || !userMri || best.expiry.getTime() <= Date.now()) {
-      return null;
+    if (best && userMri && best.expiry.getTime() > Date.now()) {
+      return { token: best.token, expiry: best.expiry, userMri };
     }
 
-    return { token: best.token, expiry: best.expiry, userMri };
+    // Fallback: try intercepted chatsvc token (new Teams with encrypted localStorage)
+    const intercepted = loadInterceptedTokens();
+    if (intercepted?.chatsvc && intercepted.chatsvc.expiry > Date.now() && userMri) {
+      return {
+        token: intercepted.chatsvc.token,
+        expiry: new Date(intercepted.chatsvc.expiry),
+        userMri,
+      };
+    }
+
+    return null;
   });
 }
 
@@ -288,7 +312,8 @@ export function extractTeamsToken(state?: SessionState): TeamsTokenInfo | null {
  * It has scope: https://api.spaces.skype.com/Authorization.ReadWrite
  */
 export function extractSkypeSpacesToken(state?: SessionState): string | null {
-  return withLocalStorage(state, (localStorage) => {
+  // Try localStorage first (works with classic Teams)
+  const fromLocalStorage = withLocalStorage(state, (localStorage) => {
     let bestCandidate: { token: string; expiry: Date } | null = null;
 
     for (const item of localStorage) {
@@ -318,6 +343,42 @@ export function extractSkypeSpacesToken(state?: SessionState): string | null {
 
     return bestCandidate?.token ?? null;
   });
+
+  if (fromLocalStorage) return fromLocalStorage;
+
+  // Fallback: try intercepted tokens (new Teams with encrypted localStorage)
+  const intercepted = loadInterceptedTokens();
+  if (intercepted?.skypeSpaces && intercepted.skypeSpaces.expiry > Date.now()) {
+    return intercepted.skypeSpaces.token;
+  }
+
+  // Fallback: try authtoken cookie (valid Skype Spaces JWT)
+  const sessionState = state ?? readSessionState();
+  if (sessionState) {
+    const cookies = sessionState.cookies ?? [];
+    const rawAuthToken = cookies.find(
+      c => c.domain?.includes('teams.microsoft.com') && c.name === 'authtoken'
+    )?.value ?? null;
+
+    if (rawAuthToken) {
+      let authToken = decodeURIComponent(rawAuthToken);
+      if (authToken.startsWith('Bearer=')) {
+        authToken = authToken.substring(7);
+      }
+
+      if (isJwtToken(authToken)) {
+        const payload = decodeJwtPayload(authToken);
+        if (payload?.aud && typeof payload.aud === 'string' && payload.aud.includes('api.spaces.skype.com')) {
+          const expiry = getJwtExpiry(authToken);
+          if (expiry && expiry.getTime() > Date.now()) {
+            return authToken;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /** Region configuration from Teams discovery. */
@@ -615,7 +676,14 @@ function extractMriFromAuthToken(token: string): string | null {
  */
 export function extractCsaToken(state?: SessionState): string | null {
   const sessionState = state ?? readSessionState();
-  if (!sessionState) return null;
+  if (!sessionState) {
+    // No session state — try intercepted tokens directly
+    const intercepted = loadInterceptedTokens();
+    if (intercepted?.chatsvc && intercepted.chatsvc.expiry > Date.now()) {
+      return intercepted.chatsvc.token;
+    }
+    return null;
+  }
 
   for (const origin of sessionState.origins ?? []) {
     for (const item of origin.localStorage ?? []) {
@@ -630,6 +698,12 @@ export function extractCsaToken(state?: SessionState): string | null {
         // Ignore parse errors
       }
     }
+  }
+
+  // Fallback: try intercepted chatsvc token (same token works for CSA)
+  const intercepted = loadInterceptedTokens();
+  if (intercepted?.chatsvc && intercepted.chatsvc.expiry > Date.now()) {
+    return intercepted.chatsvc.token;
   }
 
   return null;
