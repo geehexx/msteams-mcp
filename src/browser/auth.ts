@@ -404,33 +404,66 @@ export async function waitForManualLogin(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Token Refresh Polling (for headless browser fallback)
+// Token Readiness Detection
 // ─────────────────────────────────────────────────────────────────────────────
 
-
+/** Status of tokens found in the browser's localStorage. */
+export interface BrowserTokenStatus {
+  /** Substrate search token expiry in minutes, or -1 if not found. */
+  substrateExpiryMins: number;
+  /** Whether a chatsvc token was found. */
+  hasChatsvcToken: boolean;
+  /** Whether a Skype Spaces token was found. */
+  hasSkypeSpacesToken: boolean;
+  /** Whether the DISCOVER-REGION-GTM config is present. */
+  hasRegionConfig: boolean;
+  /** Total number of localStorage keys (for diagnostics). */
+  totalKeys: number;
+  /** Number of keys containing 'substrate' (for diagnostics). */
+  substrateKeyCount: number;
+  /** Number of keys containing 'chatsvc' (for diagnostics). */
+  chatsvcKeyCount: number;
+}
 
 /**
- * Checks in-browser localStorage for a valid Substrate token.
- * 
+ * Checks in-browser localStorage for all key tokens.
+ *
  * Evaluates directly in the page context to avoid serialising the full
- * session state (~600KB) to disk on every poll. Returns the token expiry
- * in minutes, or -1 if no valid token found.
+ * session state (~600KB) to disk on every poll. Returns a status object
+ * showing which tokens are present and their expiry.
  */
-async function checkBrowserTokenExpiry(page: Page): Promise<number> {
+export async function checkBrowserTokensReady(page: Page): Promise<BrowserTokenStatus> {
   try {
     return await page.evaluate(() => {
       const now = Date.now();
-      let bestExpiry = -1;
+      let substrateExpiryMins = -1;
+      let hasChatsvcToken = false;
+      let hasSkypeSpacesToken = false;
+      let hasRegionConfig = false;
+      let substrateKeyCount = 0;
+      let chatsvcKeyCount = 0;
+      const totalKeys = localStorage.length;
 
       for (let i = 0; i < localStorage.length; i++) {
-        const value = localStorage.getItem(localStorage.key(i)!);
+        const key = localStorage.key(i)!;
+        const value = localStorage.getItem(key);
         if (!value) continue;
+
+        // Check for DISCOVER-REGION-GTM (not a JSON-with-target entry)
+        if (key.includes('DISCOVER-REGION-GTM')) {
+          hasRegionConfig = true;
+          continue;
+        }
+
+        // Count diagnostic keys
+        const keyLower = key.toLowerCase();
+        if (keyLower.includes('substrate')) substrateKeyCount++;
+        if (keyLower.includes('chatsvc')) chatsvcKeyCount++;
 
         try {
           const entry = JSON.parse(value);
           const target = entry.target as string | undefined;
-          if (!target?.includes('substrate.office.com')) continue;
-          if (!target.includes('SubstrateSearch')) continue;
+          if (!target) continue;
 
           const secret = entry.secret as string | undefined;
           if (!secret?.startsWith('ey')) continue;
@@ -443,20 +476,66 @@ async function checkBrowserTokenExpiry(page: Page): Promise<number> {
           const expiryMs = payload.exp * 1000;
           if (expiryMs <= now) continue;
 
-          const minsRemaining = Math.round((expiryMs - now) / 60000);
-          if (minsRemaining > bestExpiry) {
-            bestExpiry = minsRemaining;
+          // Substrate token
+          if (target.includes('substrate.office.com') && target.includes('SubstrateSearch')) {
+            const minsRemaining = Math.round((expiryMs - now) / 60000);
+            if (minsRemaining > substrateExpiryMins) {
+              substrateExpiryMins = minsRemaining;
+            }
+          }
+
+          // chatsvc token
+          if (target.includes('chatsvcagg.teams.microsoft.com')) {
+            hasChatsvcToken = true;
+          }
+
+          // Skype Spaces token
+          if (target.includes('api.spaces.skype.com')) {
+            hasSkypeSpacesToken = true;
           }
         } catch {
           continue;
         }
       }
 
-      return bestExpiry;
+      return {
+        substrateExpiryMins,
+        hasChatsvcToken,
+        hasSkypeSpacesToken,
+        hasRegionConfig,
+        totalKeys,
+        substrateKeyCount,
+        chatsvcKeyCount,
+      };
     });
   } catch {
-    return -1;
+    return {
+      substrateExpiryMins: -1,
+      hasChatsvcToken: false,
+      hasSkypeSpacesToken: false,
+      hasRegionConfig: false,
+      totalKeys: 0,
+      substrateKeyCount: 0,
+      chatsvcKeyCount: 0,
+    };
   }
+}
+
+/**
+ * Formats a BrowserTokenStatus into a human-readable log line.
+ */
+function formatTokenStatus(status: BrowserTokenStatus): string {
+  const parts: string[] = [];
+  if (status.substrateExpiryMins > 0) {
+    parts.push(`substrate=${status.substrateExpiryMins}m`);
+  }
+  if (status.hasChatsvcToken) parts.push('chatsvc=✓');
+  if (status.hasSkypeSpacesToken) parts.push('skype=✓');
+  if (status.hasRegionConfig) parts.push('region=✓');
+  if (parts.length === 0) {
+    return `no tokens found (${status.totalKeys} localStorage keys, ${status.substrateKeyCount} substrate, ${status.chatsvcKeyCount} chatsvc)`;
+  }
+  return parts.join(', ');
 }
 
 /**
@@ -466,6 +545,10 @@ async function checkBrowserTokenExpiry(page: Page): Promise<number> {
  * are expired, we need to wait for Teams JS to load and trigger silent token
  * acquisition. Polls in-browser localStorage directly to avoid unnecessary
  * disk I/O, then saves session state once when tokens appear.
+ * 
+ * Returns early as soon as the Substrate token is found — it's the critical
+ * one for most tools. Other tokens (chatsvc, Skype Spaces) are logged but
+ * don't gate the return.
  * 
  * @returns true if tokens were refreshed, false if timeout
  */
@@ -481,13 +564,14 @@ async function waitForTokenRefresh(
   let lastLogTime = startTime;
   
   while (Date.now() - startTime < TOKEN_REFRESH_WAIT_TIMEOUT_MS) {
-    // Check localStorage directly in the browser (no disk I/O)
-    const minsRemaining = await checkBrowserTokenExpiry(page);
+    // Check all tokens in the browser's localStorage
+    const status = await checkBrowserTokensReady(page);
     
-    if (minsRemaining > 0) {
-      // Token found - save session state once
+    if (status.substrateExpiryMins > 0) {
+      // Substrate token found — save session and return immediately
       await saveSessionState(context);
-      log(`Token refresh detected (${minsRemaining} mins valid).`);
+      const tokenInfo = formatTokenStatus(status);
+      log(`Token refresh detected (${tokenInfo}).`);
       return true;
     }
     
@@ -495,7 +579,8 @@ async function waitForTokenRefresh(
     const now = Date.now();
     if (now - lastLogTime >= TOKEN_REFRESH_LOG_INTERVAL_MS) {
       const elapsedSecs = Math.round((now - startTime) / 1000);
-      log(`Waiting for tokens... (${elapsedSecs}s elapsed)`);
+      const diagnostics = formatTokenStatus(status);
+      log(`Waiting for tokens... (${elapsedSecs}s elapsed, ${diagnostics})`);
       lastLogTime = now;
     }
     
@@ -504,7 +589,10 @@ async function waitForTokenRefresh(
   }
   
   const totalSecs = Math.round((Date.now() - startTime) / 1000);
-  log(`Token refresh timed out after ${totalSecs}s.`);
+  // Final diagnostic dump on timeout
+  const finalStatus = await checkBrowserTokensReady(page);
+  const finalDiag = formatTokenStatus(finalStatus);
+  log(`Token refresh timed out after ${totalSecs}s (${finalDiag}).`);
   return false;
 }
 
@@ -533,23 +621,38 @@ export async function ensureAuthenticated(
   const status = await navigateToTeams(page);
 
   if (status.isAuthenticated) {
-    log('Already authenticated — saving session state.');
-    await saveSessionState(context);
+    log('Already authenticated — checking tokens in browser...');
     
-    // Check if the saved tokens are actually valid
-    // Browser session cookies can outlive MSAL tokens (cookies last days, tokens ~1 hour)
+    // Check browser localStorage directly BEFORE saving session.
+    // If the Substrate token is already present (common when browser profile
+    // has a valid session from a previous login), we can skip the 90s wait.
+    const browserTokens = await checkBrowserTokensReady(page);
+    
+    if (browserTokens.substrateExpiryMins > 0) {
+      // Tokens already present — save session and return immediately
+      await saveSessionState(context);
+      const tokenInfo = formatTokenStatus(browserTokens);
+      log(`Tokens already present (${tokenInfo}) — session saved.`);
+      return;
+    }
+    
+    // Tokens not in browser yet — also check the saved session file as fallback.
+    // saveSessionState captures Playwright's storageState; extractSubstrateToken
+    // reads from that file. If the token is there, we're done.
+    await saveSessionState(context);
     const token = extractSubstrateToken();
     const tokenValid = token && token.expiry.getTime() > Date.now();
     
     if (tokenValid) {
-      log('Session state saved.');
+      log('Session state saved — tokens valid from saved session.');
       return;
     }
     
-    // Tokens are expired - in headless mode, wait for MSAL to refresh them
-    // Teams JS will silently acquire new tokens using the session cookies
+    // Neither browser localStorage nor saved session has valid tokens.
+    // Wait for MSAL to refresh them.
+    const diagnostics = formatTokenStatus(browserTokens);
     if (headless) {
-      log('Tokens expired, waiting for MSAL to refresh...');
+      log(`Tokens expired, waiting for MSAL to refresh... (${diagnostics})`);
       const refreshed = await waitForTokenRefresh(page, context, onProgress);
       
       if (refreshed) {
@@ -563,7 +666,7 @@ export async function ensureAuthenticated(
     // In visible mode, also wait for MSAL to refresh tokens.
     // Enterprise SSO tenants need time for silent token acquisition even when
     // the browser session is valid. Without waiting, tokens won't be captured.
-    log('Tokens expired, waiting for MSAL to refresh...');
+    log(`Tokens expired, waiting for MSAL to refresh... (${diagnostics})`);
     const refreshed = await waitForTokenRefresh(page, context, onProgress);
     
     if (refreshed) {
