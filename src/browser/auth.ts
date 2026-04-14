@@ -14,6 +14,7 @@ import {
 } from '../constants.js';
 import { extractSubstrateToken } from '../auth/token-extractor.js';
 import {
+  getInterceptedTokens,
   createTokenInterceptor,
   saveInterceptedTokens,
   clearInterceptedTokens,
@@ -588,6 +589,15 @@ async function waitForTokenRefresh(
       return true;
     }
     
+    // Also check if network interceptor has captured tokens
+    const intercepted = getInterceptedTokens();
+    if (intercepted.substrate && intercepted.substrate.expiry > Date.now()) {
+      await saveSessionState(context);
+      saveInterceptedTokens();
+      log('Tokens captured from network requests during wait.');
+      return true;
+    }
+
     // Log progress every TOKEN_REFRESH_LOG_INTERVAL_MS so the user knows we're still working
     const now = Date.now();
     if (now - lastLogTime >= TOKEN_REFRESH_LOG_INTERVAL_MS) {
@@ -671,6 +681,15 @@ export async function ensureAuthenticated(
       return;
     }
     
+    // Check if network interceptor already captured tokens
+    const intercepted = getInterceptedTokens();
+    if (intercepted.substrate) {
+      saveInterceptedTokens();
+      cleanupInterceptor();
+      log('Tokens captured from network requests — session saved.');
+      return;
+    }
+
     // Neither browser localStorage nor saved session has valid tokens.
     // Wait for MSAL to refresh them.
     const diagnostics = formatTokenStatus(browserTokens);
