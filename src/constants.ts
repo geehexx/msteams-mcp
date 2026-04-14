@@ -242,3 +242,23 @@ export const STANDARD_EMOJIS: readonly StandardEmoji[] = [
   { key: 'makeup', description: 'Make-up 💄', category: 'other' },
   { key: 'snowangel', description: 'Snow angel', category: 'other' },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Token Refresh Wait (browser-based)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Timeout for waiting for MSAL to populate tokens in localStorage (ms).
+ * 
+ * Enterprise SSO tenants with redirect chains (e.g. ADFS federation,
+ * t3-consultants.com → t-3.ai) can take 30-60+ seconds for MSAL silent
+ * token acquisition to complete after the Teams page renders. 90 seconds
+ * provides sufficient headroom for these slow tenants.
+ */
+export const TOKEN_REFRESH_WAIT_TIMEOUT_MS = 90000;
+
+/** Interval for polling localStorage for refreshed tokens (ms). */
+export const TOKEN_REFRESH_POLL_INTERVAL_MS = 1000;
+
+/** Interval for logging progress during token refresh wait (ms). */
+export const TOKEN_REFRESH_LOG_INTERVAL_MS = 5000;

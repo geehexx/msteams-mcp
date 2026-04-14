@@ -65,11 +65,24 @@ export async function refreshTokensViaBrowser(): Promise<Result<TokenRefreshResu
   // Get current token expiry for comparison
   const beforeToken = extractSubstrateToken();
   if (!beforeToken) {
-    log.warn('token-refresh', 'No Substrate token found in session - cannot refresh, browser login required');
-    return err(createError(
-      ErrorCode.AUTH_REQUIRED,
-      'ACTION REQUIRED: No token found in session. You MUST call teams_login to authenticate.',
-    ));
+    // No existing Substrate token — but the browser profile may have valid session
+    // cookies from a previous login. Try browser-based refresh first, since a
+    // headless navigation to Teams can trigger MSAL to acquire fresh tokens.
+    log.info('token-refresh', 'No Substrate token found in session — attempting browser-based token acquisition');
+    refreshInProgress = true;
+    try {
+      const browserResult = await refreshTokensViaBrowserImpl(new Date(0));
+      if (browserResult.ok) {
+        return browserResult;
+      }
+      log.warn('token-refresh', `Browser-based token acquisition failed: ${browserResult.error.message}`);
+      return err(createError(
+        ErrorCode.AUTH_REQUIRED,
+        'ACTION REQUIRED: No token found and browser refresh failed. You MUST call teams_login to authenticate.',
+      ));
+    } finally {
+      refreshInProgress = false;
+    }
   }
 
   log.debug('token-refresh', `Current token expires at ${beforeToken.expiry.toISOString()} (${Math.round((beforeToken.expiry.getTime() - Date.now()) / 60000)} mins remaining)`);

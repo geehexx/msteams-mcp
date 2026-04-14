@@ -8,6 +8,9 @@ import { saveSessionState } from './context.js';
 import {
   OVERLAY_STEP_PAUSE_MS,
   OVERLAY_COMPLETE_PAUSE_MS,
+  TOKEN_REFRESH_WAIT_TIMEOUT_MS,
+  TOKEN_REFRESH_POLL_INTERVAL_MS,
+  TOKEN_REFRESH_LOG_INTERVAL_MS,
 } from '../constants.js';
 import { extractSubstrateToken } from '../auth/token-extractor.js';
 import * as logger from '../utils/logger.js';
@@ -404,11 +407,7 @@ export async function waitForManualLogin(
 // Token Refresh Polling (for headless browser fallback)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Timeout for waiting for MSAL to refresh tokens (ms). */
-const TOKEN_REFRESH_WAIT_TIMEOUT_MS = 20000;
 
-/** Interval for checking if tokens have been refreshed (ms). */
-const TOKEN_REFRESH_POLL_INTERVAL_MS = 1000;
 
 /**
  * Checks in-browser localStorage for a valid Substrate token.
@@ -479,6 +478,7 @@ async function waitForTokenRefresh(
   
   log('Waiting for MSAL to refresh tokens...');
   const startTime = Date.now();
+  let lastLogTime = startTime;
   
   while (Date.now() - startTime < TOKEN_REFRESH_WAIT_TIMEOUT_MS) {
     // Check localStorage directly in the browser (no disk I/O)
@@ -491,11 +491,20 @@ async function waitForTokenRefresh(
       return true;
     }
     
+    // Log progress every TOKEN_REFRESH_LOG_INTERVAL_MS so the user knows we're still working
+    const now = Date.now();
+    if (now - lastLogTime >= TOKEN_REFRESH_LOG_INTERVAL_MS) {
+      const elapsedSecs = Math.round((now - startTime) / 1000);
+      log(`Waiting for tokens... (${elapsedSecs}s elapsed)`);
+      lastLogTime = now;
+    }
+    
     // Wait and retry
     await page.waitForTimeout(TOKEN_REFRESH_POLL_INTERVAL_MS);
   }
   
-  log('Token refresh timed out.');
+  const totalSecs = Math.round((Date.now() - startTime) / 1000);
+  log(`Token refresh timed out after ${totalSecs}s.`);
   return false;
 }
 
@@ -551,8 +560,17 @@ export async function ensureAuthenticated(
       throw new Error('Headless SSO failed: MSAL token refresh timed out');
     }
     
-    // In visible mode, the tokens might refresh while user interacts, or they can
-    // manually complete any prompts. We've saved what we have.
+    // In visible mode, also wait for MSAL to refresh tokens.
+    // Enterprise SSO tenants need time for silent token acquisition even when
+    // the browser session is valid. Without waiting, tokens won't be captured.
+    log('Tokens expired, waiting for MSAL to refresh...');
+    const refreshed = await waitForTokenRefresh(page, context, onProgress);
+    
+    if (refreshed) {
+      return;
+    }
+    
+    // Tokens didn't appear — save whatever state we have so cookies still work
     log('Session state saved (tokens may need refresh).');
     return;
   }
