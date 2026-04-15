@@ -17,7 +17,7 @@ import {
   extractCsaToken,
   clearTokenCache,
 } from '../auth/token-extractor.js';
-import { createBrowserContext, closeBrowser, clearBrowserProfile } from '../browser/context.js';
+import { createBrowserContext, createCleanBrowserContext, closeBrowser, clearBrowserProfile } from '../browser/context.js';
 import * as log from '../utils/logger.js';
 import { ensureAuthenticated, forceNewLogin, getAuthStatus } from '../browser/auth.js';
 import { clearInterceptedTokens } from '../auth/token-interceptor.js';
@@ -156,8 +156,12 @@ async function handleLogin(
     }
   }
 
-  // Open visible browser for user interaction
-  const browserManager = await createBrowserContext({ headless: false });
+  // Open visible browser for user interaction.
+  // Use createCleanBrowserContext (non-persistent, chromium.launch) which does NOT
+  // apply enterprise policies or Windows Integrated Authentication. This gives the
+  // user a blank Microsoft login page with no auto-filled accounts from the Windows
+  // session. After login, we save the session state to our encrypted storage.
+  const browserManager = await createCleanBrowserContext({ headless: false });
   ctx.server.setBrowserManager(browserManager);
 
   try {

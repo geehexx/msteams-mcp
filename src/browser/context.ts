@@ -159,6 +159,54 @@ export function clearBrowserProfile(): void {
 }
 
 /**
+ * Creates a clean browser context WITHOUT enterprise policies or WIA.
+ * 
+ * Uses chromium.launch() which creates an in-memory (incognito-like) context.
+ * Unlike launchPersistentContext, this does NOT apply enterprise policies,
+ * Windows Integrated Authentication, or Edge profile sync. The user gets
+ * a blank Microsoft login page with no auto-filled accounts.
+ * 
+ * Use this for fresh login (forceNew or first-time login). After the user
+ * signs in, save the session state. For subsequent headless refreshes,
+ * use createBrowserContext (persistent) which has the correct cookies.
+ * 
+ * The session state is managed via storageState (cookies + localStorage),
+ * not via the browser profile directory.
+ */
+export async function createCleanBrowserContext(
+  options: CreateBrowserOptions = {}
+): Promise<BrowserManager> {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const channel = getBrowserChannel();
+
+  const browser = await chromium.launch({
+    headless: opts.headless,
+    channel,
+    args: [
+      // Belt-and-suspenders: disable WIA even in non-persistent mode
+      '--auth-server-allowlist="_"',
+      '--disable-features=msImplicitSignin',
+      '--disable-sync',
+    ],
+  });
+
+  const context = await browser.newContext({
+    viewport: opts.viewport,
+    acceptDownloads: false,
+  });
+
+  const page = await context.newPage();
+
+  return {
+    browser: null, // We don't expose the browser object
+    context,
+    page,
+    isNewSession: true,
+    persistent: true, // Keep interface compatible
+  };
+}
+
+/**
  * Creates a browser context using a persistent profile.
  *
  * Uses the system's installed Chrome or Edge browser rather than downloading
