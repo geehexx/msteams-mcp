@@ -196,6 +196,20 @@ export async function createBrowserContext(
       channel,
       viewport: opts.viewport,
       acceptDownloads: false,
+      args: [
+        // Prevent Windows Integrated Authentication (WIA) from auto-filling
+        // credentials. Without this, Edge passes the Windows session's
+        // Kerberos/NTLM credentials to Microsoft's login page, which
+        // auto-signs in as the Windows user (e.g., andrewc1) instead of
+        // letting the user choose which account to sign in with.
+        '--auth-server-allowlist="_"',
+        // Disable Edge implicit sign-in — prevents Edge from automatically
+        // signing into the browser profile using the Windows account.
+        '--disable-features=msImplicitSignin',
+        // Disable sync to prevent pulling in accounts from the default
+        // Edge profile or the Windows Microsoft account.
+        '--disable-sync',
+      ],
     });
 
     // Persistent contexts start with one page; use it or create one
