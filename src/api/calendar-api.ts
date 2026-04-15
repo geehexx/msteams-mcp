@@ -8,7 +8,7 @@ import { httpRequest } from '../utils/http.js';
 import { CALENDAR_API, getTeamsHeaders } from '../utils/api-config.js';
 import { type Result, ok, err } from '../types/result.js';
 import { ErrorCode, createError } from '../types/errors.js';
-import { requireSkypeSpacesAuth, getRegionConfig } from '../utils/auth-guards.js';
+import { requireSkypeSpacesAuthAsync, getRegionConfig } from '../utils/auth-guards.js';
 import {
   DEFAULT_MEETING_LIMIT,
   DEFAULT_MEETING_DAYS_AHEAD,
@@ -184,7 +184,7 @@ function getSelectFields(): string {
 export async function getCalendarView(
   options: CalendarViewOptions = {}
 ): Promise<Result<CalendarViewResult>> {
-  const authResult = requireSkypeSpacesAuth();
+  const authResult = await requireSkypeSpacesAuthAsync();
   if (!authResult.ok) {
     return authResult;
   }

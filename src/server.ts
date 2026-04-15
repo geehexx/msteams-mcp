@@ -42,6 +42,7 @@ import type { ToolContext } from './tools/index.js';
 
 // Types
 import { ErrorCode, createError, type McpError } from './types/errors.js';
+import { AUTO_LOGIN_TIMEOUT_MS } from './constants.js';
 import * as log from './utils/logger.js';
 import type { TeamsServer as ITeamsServer } from './types/server.js';
 
@@ -221,16 +222,31 @@ export class TeamsServer implements ITeamsServer {
   }
 
   private async _attemptAutoLoginImpl(): Promise<boolean> {
+    // Overall timeout prevents cascading waits from blocking the caller.
+    // Without this, HTTP refresh (~1s) + browser refresh (~15s headless) +
+    // second browser attempt (~15s) could take 30s+. The timeout caps it.
+    const deadline = Date.now() + AUTO_LOGIN_TIMEOUT_MS;
+
     try {
-      // First try the lightweight token refresh (headless browser, persistent profile)
+      // Strategy 1: HTTP-first token refresh with browser fallback.
+      // refreshTokensViaBrowser tries HTTP (~100ms), then headless browser
+      // with HEADLESS_TOKEN_WAIT_TIMEOUT_MS (15s) — much faster than the
+      // interactive 90s timeout.
       const refreshResult = await refreshTokensViaBrowser();
       if (refreshResult.ok) {
         this.markInitialised();
         return true;
       }
 
-      // Token refresh failed — try a full headless login
-      // (covers cases where session cookies are still valid but token cache is stale)
+      // Check if we've exceeded the overall deadline
+      if (Date.now() >= deadline) {
+        log.warn('auto-login', 'Auto-login deadline exceeded after token refresh attempt');
+        return false;
+      }
+
+      // Strategy 2: Full headless login (only if we have time remaining).
+      // This covers cases where the refresh token is expired but session
+      // cookies are still valid in the browser profile.
       log.warn('auto-login', 'Token refresh failed, trying full headless login...');
       clearTokenCache();
 
@@ -249,7 +265,7 @@ export class TeamsServer implements ITeamsServer {
         this.markInitialised();
         return true;
       } catch (error) {
-        // Headless login also failed — user interaction required
+        // Headless login failed — user interaction required
         log.error('auto-login:headless', `Headless login failed: ${error instanceof Error ? error.message : String(error)}`);
         try {
           await closeBrowser(headlessManager, false);

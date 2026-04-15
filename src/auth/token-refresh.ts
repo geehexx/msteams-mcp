@@ -18,7 +18,7 @@
  * First login always requires a browser — there's no refresh token to use yet.
  */
 
-import { TOKEN_REFRESH_THRESHOLD_MS } from '../constants.js';
+import { TOKEN_REFRESH_THRESHOLD_MS, HEADLESS_TOKEN_WAIT_TIMEOUT_MS } from '../constants.js';
 import { ErrorCode, createError } from '../types/errors.js';
 import { type Result, ok, err } from '../types/result.js';
 import {

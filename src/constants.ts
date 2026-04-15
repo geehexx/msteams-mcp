@@ -257,6 +257,24 @@ export const STANDARD_EMOJIS: readonly StandardEmoji[] = [
  */
 export const TOKEN_REFRESH_WAIT_TIMEOUT_MS = 90000;
 
+/**
+ * Shorter timeout for headless auto-refresh (no user interaction possible).
+ * 
+ * When auto-login triggers a headless browser refresh, MSAL silent token
+ * acquisition either works quickly (5-10s) or not at all. 15 seconds is
+ * sufficient headroom without blocking the caller for 90s.
+ */
+export const HEADLESS_TOKEN_WAIT_TIMEOUT_MS = 15000;
+
+/**
+ * Overall timeout for the auto-login attempt in server.ts.
+ * 
+ * Caps the total time spent trying to auto-refresh tokens before
+ * returning AUTH_REQUIRED to the caller. Prevents cascading waits
+ * from HTTP refresh + browser refresh + second browser attempt.
+ */
+export const AUTO_LOGIN_TIMEOUT_MS = 30000;
+
 /** Interval for polling localStorage for refreshed tokens (ms). */
 export const TOKEN_REFRESH_POLL_INTERVAL_MS = 1000;
 

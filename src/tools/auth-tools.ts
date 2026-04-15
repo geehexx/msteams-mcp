@@ -101,19 +101,17 @@ async function handleLogin(
   }
 
   // Headless-first strategy:
-  // The persistent browser profile retains Microsoft's long-lived session cookies,
-  // so headless SSO can succeed even without a session-state file. Always try
-  // headless first — even for forceNew. Most recovery scenarios complete silently.
-  {
+  // Only attempt headless SSO if a session exists AND we're not forcing new login.
+  // Without an existing session (no browser profile cookies), headless will always
+  // fail immediately (login page detected → throw). Skipping it avoids a brief
+  // window flash on Windows where headless Edge can momentarily show a window.
+  const shouldTryHeadless = !input.forceNew && hasSessionState();
+
+  if (shouldTryHeadless) {
     const headlessManager = await createBrowserContext({ headless: true });
     ctx.server.setBrowserManager(headlessManager);
 
     try {
-      if (input.forceNew) {
-        // Clear persistent profile cookies to force fresh authentication
-        await headlessManager.context.clearCookies();
-      }
-
       await ensureAuthenticated(
         headlessManager.page,
         headlessManager.context,

@@ -144,6 +144,33 @@ export function requireSkypeSpacesAuth(): Result<SkypeSpacesAuthInfo, McpError> 
   return ok({ skypeToken: auth.skypeToken, spacesToken });
 }
 
+/**
+ * Requires valid Skype Spaces authentication with proactive refresh.
+ * 
+ * Like requireSubstrateTokenAsync, this checks if the Substrate token
+ * (which shares the same session) is approaching expiry and triggers
+ * a proactive refresh before the Skype Spaces token expires too.
+ * Use for mt/part APIs (calendar, tags, etc.) in tool handlers.
+ */
+export async function requireSkypeSpacesAuthAsync(): Promise<Result<SkypeSpacesAuthInfo, McpError>> {
+  // Check if we need to refresh proactively (Substrate token is the canary)
+  if (shouldRefreshSubstrateToken()) {
+    const refreshResult = await refreshTokensViaBrowser();
+    if (refreshResult.ok) {
+      // Refresh succeeded, try to get the Skype Spaces tokens
+      const auth = extractMessageAuth();
+      const spacesToken = extractSkypeSpacesToken();
+      if (auth?.skypeToken && spacesToken) {
+        return ok({ skypeToken: auth.skypeToken, spacesToken });
+      }
+    }
+    // Refresh failed but tokens might still be valid, fall through
+  }
+
+  // Try to get existing tokens
+  return requireSkypeSpacesAuth();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Substrate Error Handling
 // ─────────────────────────────────────────────────────────────────────────────

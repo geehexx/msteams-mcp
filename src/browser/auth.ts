@@ -9,6 +9,7 @@ import {
   OVERLAY_STEP_PAUSE_MS,
   OVERLAY_COMPLETE_PAUSE_MS,
   TOKEN_REFRESH_WAIT_TIMEOUT_MS,
+  HEADLESS_TOKEN_WAIT_TIMEOUT_MS,
   TOKEN_REFRESH_POLL_INTERVAL_MS,
   TOKEN_REFRESH_LOG_INTERVAL_MS,
 } from '../constants.js';
@@ -570,6 +571,7 @@ async function waitForTokenRefresh(
   page: Page,
   context: BrowserContext,
   onProgress?: (message: string) => void,
+  timeoutMs: number = TOKEN_REFRESH_WAIT_TIMEOUT_MS,
 ): Promise<boolean> {
   const log = onProgress ?? ((msg: string) => logger.debug('auth', msg));
   
@@ -577,7 +579,7 @@ async function waitForTokenRefresh(
   const startTime = Date.now();
   let lastLogTime = startTime;
   
-  while (Date.now() - startTime < TOKEN_REFRESH_WAIT_TIMEOUT_MS) {
+  while (Date.now() - startTime < timeoutMs) {
     // Check all tokens in the browser's localStorage
     const status = await checkBrowserTokensReady(page);
     
@@ -695,7 +697,7 @@ export async function ensureAuthenticated(
     const diagnostics = formatTokenStatus(browserTokens);
     if (headless) {
       log(`Tokens expired, waiting for MSAL to refresh... (${diagnostics})`);
-      const refreshed = await waitForTokenRefresh(page, context, onProgress);
+      const refreshed = await waitForTokenRefresh(page, context, onProgress, HEADLESS_TOKEN_WAIT_TIMEOUT_MS);
       
       if (refreshed) {
         saveInterceptedTokens();
