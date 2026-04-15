@@ -21,6 +21,7 @@ import { createBrowserContext, createCleanBrowserContext, closeBrowser, clearBro
 import * as log from '../utils/logger.js';
 import { ensureAuthenticated, forceNewLogin, getAuthStatus } from '../browser/auth.js';
 import { clearInterceptedTokens } from '../auth/token-interceptor.js';
+import { createError, ErrorCode } from '../types/errors.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Schemas
@@ -178,9 +179,39 @@ async function handleLogin(
         (msg) => log.info('login', msg)
       );
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Detect browser closed by user before login completed
+    if (
+      message.includes('Target closed') ||
+      message.includes('Browser closed') ||
+      message.includes('Target page, context or browser has been closed')
+    ) {
+      ctx.server.resetBrowserState();
+      return {
+        success: false,
+        error: createError(
+          ErrorCode.BROWSER_ERROR,
+          'Browser was closed before login completed. Please call teams_login again and wait for the "All done!" message before closing the browser.',
+          {
+            retryable: true,
+            suggestions: [
+              'Call teams_login again',
+              'Wait for the overlay to show "All done!" before closing',
+            ],
+          }
+        ),
+      };
+    }
+    // Re-throw unexpected errors so the finally block still runs cleanup
+    throw error;
   } finally {
     // Close browser after login - we only need the saved session/tokens
-    await closeBrowser(browserManager, true);
+    try {
+      await closeBrowser(browserManager, true);
+    } catch {
+      // Browser may already be closed by user — ignore cleanup errors
+    }
     ctx.server.resetBrowserState();
   }
 

@@ -156,3 +156,53 @@ describe('auth module exports', () => {
     expect(typeof auth.forceNewLogin).toBe('function');
   });
 });
+
+// ── Browser context module exports ──────────────────────────────────────────
+
+describe('browser context exports', () => {
+  it('should export clearBrowserProfile', async () => {
+    const context = await import('./context.js');
+    expect(context).toHaveProperty('clearBrowserProfile');
+    expect(typeof context.clearBrowserProfile).toBe('function');
+  });
+
+  it('should export createCleanBrowserContext', async () => {
+    const context = await import('./context.js');
+    expect(context).toHaveProperty('createCleanBrowserContext');
+    expect(typeof context.createCleanBrowserContext).toBe('function');
+  });
+
+  it('should export createBrowserContext', async () => {
+    const context = await import('./context.js');
+    expect(context).toHaveProperty('createBrowserContext');
+    expect(typeof context.createBrowserContext).toBe('function');
+  });
+
+  it('should export closeBrowser', async () => {
+    const context = await import('./context.js');
+    expect(context).toHaveProperty('closeBrowser');
+    expect(typeof context.closeBrowser).toBe('function');
+  });
+
+  it('should export saveSessionState', async () => {
+    const context = await import('./context.js');
+    expect(context).toHaveProperty('saveSessionState');
+    expect(typeof context.saveSessionState).toBe('function');
+  });
+});
+
+// ── New timeout constants ───────────────────────────────────────────────────
+
+describe('HEADLESS_TOKEN_WAIT_TIMEOUT_MS', () => {
+  it('should be 15 seconds', async () => {
+    const { HEADLESS_TOKEN_WAIT_TIMEOUT_MS } = await import('../constants.js');
+    expect(HEADLESS_TOKEN_WAIT_TIMEOUT_MS).toBe(15000);
+  });
+});
+
+describe('AUTO_LOGIN_TIMEOUT_MS', () => {
+  it('should be 30 seconds', async () => {
+    const { AUTO_LOGIN_TIMEOUT_MS } = await import('../constants.js');
+    expect(AUTO_LOGIN_TIMEOUT_MS).toBe(30000);
+  });
+});

@@ -36,11 +36,23 @@ vi.mock('./people-tools.js', () => ({
 }));
 
 vi.mock('./auth-tools.js', () => ({
-  authTools: [{
-    definition: { name: 'teams_login' },
-    schema: z.object({}),
-    handler: vi.fn().mockResolvedValue({ success: true }),
-  }],
+  authTools: [
+    {
+      definition: { name: 'teams_login' },
+      schema: z.object({}),
+      handler: vi.fn().mockResolvedValue({ success: true }),
+    },
+    {
+      definition: { name: 'teams_status' },
+      schema: z.object({}),
+      handler: vi.fn().mockResolvedValue({ success: true }),
+    },
+    {
+      definition: { name: 'teams_logout' },
+      schema: z.object({}),
+      handler: vi.fn().mockResolvedValue({ success: true }),
+    },
+  ],
 }));
 
 vi.mock('./meeting-tools.js', () => ({
@@ -148,5 +160,32 @@ describe('invokeTool', () => {
       expect(result.error.code).toBe('INVALID_INPUT');
       expect(result.error.message).toContain('Invalid input');
     }
+  });
+});
+
+describe('teams_logout tool registration', () => {
+  it('is registered in the tool registry', () => {
+    expect(hasTool('teams_logout')).toBe(true);
+  });
+
+  it('can be found by name', () => {
+    const tool = getTool('teams_logout');
+    expect(tool).toBeDefined();
+    expect(tool?.definition.name).toBe('teams_logout');
+  });
+
+  it('can be invoked', async () => {
+    const mockContext: ToolContext = {
+      server: {
+        ensureBrowser: async () => ({} as never),
+        resetBrowserState: () => {},
+        getBrowserManager: () => null,
+        setBrowserManager: () => {},
+        markInitialised: () => {},
+        isInitialisedState: () => false,
+      },
+    };
+    const result = await invokeTool('teams_logout', {}, mockContext);
+    expect(result.success).toBe(true);
   });
 });
