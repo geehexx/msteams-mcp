@@ -140,6 +140,25 @@ function getBrowserChannel(): 'msedge' | 'chrome' {
 }
 
 /**
+ * Deletes the persistent browser profile directory.
+ * 
+ * This completely removes all cached Microsoft account data, cookies,
+ * localStorage, IndexedDB, and the Edge account picker state. Use this
+ * when switching accounts — clearing cookies alone is not enough because
+ * Microsoft's login page uses localStorage and profile-level account
+ * memory to auto-select the previously signed-in account.
+ * 
+ * The directory is recreated automatically by createBrowserContext on
+ * the next launch.
+ */
+export function clearBrowserProfile(): void {
+  if (fs.existsSync(BROWSER_PROFILE_DIR)) {
+    log.info('browser', 'Deleting browser profile for clean login...');
+    fs.rmSync(BROWSER_PROFILE_DIR, { recursive: true, force: true });
+  }
+}
+
+/**
  * Creates a browser context using a persistent profile.
  *
  * Uses the system's installed Chrome or Edge browser rather than downloading

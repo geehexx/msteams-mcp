@@ -764,8 +764,23 @@ export async function forceNewLogin(
 
   log('Starting fresh login...');
 
-  // Clear cookies to force re-authentication
+  // Clear all browser state — cookies, localStorage, and service workers.
+  // Cookies alone are not enough: Microsoft's login page uses localStorage
+  // and the browser profile's account picker to remember signed-in accounts.
+  // Note: the browser profile directory itself should be deleted BEFORE
+  // creating the browser context (done in handleLogin with forceNew: true).
   await context.clearCookies();
+
+  // Navigate to Microsoft sign-out to clear any SSO state, then to Teams
+  try {
+    await page.goto('https://login.microsoftonline.com/common/oauth2/logout', {
+      waitUntil: 'domcontentloaded',
+      timeout: 10000,
+    });
+    await page.waitForTimeout(1000);
+  } catch {
+    // Sign-out page may redirect or timeout — that's fine
+  }
 
   // Navigate and wait for login
   await navigateToTeams(page);

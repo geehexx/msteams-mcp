@@ -17,9 +17,10 @@ import {
   extractCsaToken,
   clearTokenCache,
 } from '../auth/token-extractor.js';
-import { createBrowserContext, closeBrowser } from '../browser/context.js';
+import { createBrowserContext, closeBrowser, clearBrowserProfile } from '../browser/context.js';
 import * as log from '../utils/logger.js';
 import { ensureAuthenticated, forceNewLogin, getAuthStatus } from '../browser/auth.js';
+import { clearInterceptedTokens } from '../auth/token-interceptor.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Schemas
@@ -29,13 +30,15 @@ export const LoginInputSchema = z.object({
   forceNew: z.boolean().optional().default(false),
 });
 
+export const LogoutInputSchema = z.object({});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool Definitions
 // ─────────────────────────────────────────────────────────────────────────────
 
 const loginToolDefinition: Tool = {
   name: 'teams_login',
-  description: 'Trigger manual login flow for Microsoft Teams. Use this if the session has expired or you need to switch accounts.',
+  description: 'Trigger manual login flow for Microsoft Teams. Use this if the session has expired or you need to switch accounts. Set forceNew=true to completely reset the browser profile and start fresh — this clears all cached accounts so you can sign in with a different Microsoft account.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -50,6 +53,15 @@ const loginToolDefinition: Tool = {
 const statusToolDefinition: Tool = {
   name: 'teams_status',
   description: 'Check the current authentication status and session state.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+  },
+};
+
+const logoutToolDefinition: Tool = {
+  name: 'teams_logout',
+  description: 'Sign out of Microsoft Teams completely. Clears all session data, tokens, and the browser profile so the next teams_login starts fresh with no remembered accounts. Use this to switch Microsoft accounts or resolve authentication issues.',
   inputSchema: {
     type: 'object',
     properties: {},
@@ -77,6 +89,8 @@ async function handleLogin(
   if (input.forceNew) {
     clearSessionState();
     clearTokenCache();
+    clearInterceptedTokens();
+    clearBrowserProfile();
   }
 
   // Fast path: if tokens are still valid, skip browser entirely
@@ -222,6 +236,35 @@ async function handleStatus(
   };
 }
 
+async function handleLogout(
+  _input: Record<string, never>,
+  ctx: ToolContext
+): Promise<ToolResult> {
+  // Close any running browser
+  const existingManager = ctx.server.getBrowserManager();
+  if (existingManager) {
+    try {
+      await closeBrowser(existingManager, false);
+    } catch {
+      // Ignore cleanup errors
+    }
+    ctx.server.resetBrowserState();
+  }
+
+  // Clear everything
+  clearSessionState();
+  clearTokenCache();
+  clearInterceptedTokens();
+  clearBrowserProfile();
+
+  return {
+    success: true,
+    data: {
+      message: 'Signed out. All session data, tokens, and browser profile cleared. Call teams_login to sign in with a new account.',
+    },
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Exports
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,5 +281,11 @@ export const statusTool: RegisteredTool<z.ZodObject<Record<string, never>>> = {
   handler: handleStatus,
 };
 
+export const logoutTool: RegisteredTool<z.ZodObject<Record<string, never>>> = {
+  definition: logoutToolDefinition,
+  schema: z.object({}),
+  handler: handleLogout,
+};
+
 /** All auth-related tools. */
-export const authTools = [loginTool, statusTool];
+export const authTools = [loginTool, statusTool, logoutTool];
